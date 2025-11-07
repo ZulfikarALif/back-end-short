@@ -1,6 +1,7 @@
 // src/models/Link.js
 import { DataTypes } from "sequelize";
 import db from "../configs/Database.js";
+import User from "./User.js";
 
 const Link = db.define(
   "links",
@@ -9,6 +10,10 @@ const Link = db.define(
       type: DataTypes.STRING(36),
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
+    },
+    user_id: {
+      type: DataTypes.STRING,
+      allowNull: false,
     },
     default_link: {
       type: DataTypes.TEXT,
@@ -30,5 +35,15 @@ const Link = db.define(
     freezeTableName: true,
   }
 );
+
+Link.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+  onDelete: "cascade",
+});
+User.hasMany(Link, {
+  foreignKey: "user_id",
+  as: "links",
+});
 
 export default Link;

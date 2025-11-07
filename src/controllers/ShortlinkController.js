@@ -3,6 +3,8 @@ import Link from "../models/Link.js";
 
 export const shortenUrl = async (req, res) => {
   try {
+    const { userId } = req;
+
     const { original_url } = req.body;
 
     if (!original_url) {
@@ -16,6 +18,7 @@ export const shortenUrl = async (req, res) => {
       default_link: original_url,
       short_link: shortCode,
       description: req.body.description || null,
+      user_id: userId,
     });
 
     res.status(201).json({
@@ -25,14 +28,19 @@ export const shortenUrl = async (req, res) => {
     });
   } catch (error) {
     console.error("Error:", error.message || error);
+    console.log(error);
+
     res.status(500).json({ error: "Gagal menyimpan ke database" });
   }
 };
 
 export const getAllLinks = async (req, res) => {
   try {
+    const { userId } = req;
     const links = await Link.findAll({
-      order: [["createdAt", "DESC"]],
+      where: {
+        user_id: userId,
+      },
     });
 
     const formattedLinks = links.map((link) => ({
