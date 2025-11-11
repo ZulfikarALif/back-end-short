@@ -5,6 +5,7 @@ import {
   login,
   register,
   getAllUsers,
+  getDashboardStats,
 } from "../controllers/UserController.js";
 import schemas from "../middlewares/Schema.js";
 import verifyToken from "../middlewares/VerifytToken.js";
@@ -16,6 +17,7 @@ import verifyToken from "../middlewares/VerifytToken.js";
 
 const router = Router();
 
+router.get("/dashboard-stats", verifyToken, getDashboardStats);
 router.get("/users", verifyToken, getAllUsers);
 // router.post("/", schemas(userCreateSchema), createUser);
 // router.put("/:id", schemas(userUpdateSchema), updateUser);

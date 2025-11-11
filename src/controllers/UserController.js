@@ -190,3 +190,31 @@ export const register = async (req, res) => {
     return res.status(500).json({ message: "Server error saat registrasi" });
   }
 };
+
+// --- TAMBAHKAN INI DI AKHIR FILE (sebelum export jika pakai export manual) ---
+
+export const getDashboardStats = async (req, res) => {
+  try {
+    // Hitung jumlah pengguna non-admin (sesuai logika getAllUsers Anda)
+    const totalUsers = await User.count({
+      where: {
+        role: { [Op.not]: "admin" },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalUsers,
+        totalLinks: 0, // placeholder — isi nanti kalau sudah ada Link model aktif
+        activeDomains: 0, // placeholder
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil statistik dashboard",
+    });
+  }
+};
