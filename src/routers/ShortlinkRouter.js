@@ -8,7 +8,7 @@ import {
 
 import { createShortlinkSchema } from "../validations/ShortlinkValidation.js";
 import schemas from "../middlewares/Schema.js";
-import verifyToken from "../middlewares/VerifytToken.js";
+import verifyToken from "../middlewares/VerifyToken.js";
 
 const router = Router();
 

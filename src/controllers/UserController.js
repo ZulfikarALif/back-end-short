@@ -100,7 +100,7 @@ export const deleteUser = async (req, res) => {
   }
 };
 
-// 🔑 FUNGSI LOGIN BARU — ditambahkan sesuai permintaan
+// 🔑 FUNGSI LOGIN — DIPERBAIKI: gunakan JWT_SECRET (bukan ACCESS_TOKEN)
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -115,6 +115,7 @@ export const login = async (req, res) => {
       return res.status(401).json({ message: "Email atau password salah" });
     }
 
+    // ✅ DIPERBAIKI: gunakan JWT_SECRET
     const token = jwt.sign(
       {
         id: user.id,
@@ -122,7 +123,7 @@ export const login = async (req, res) => {
         full_name: user.full_name,
         role: user.role,
       },
-      process.env.ACCESS_TOKEN,
+      process.env.JWT_SECRET, // ← diubah ke JWT_SECRET
       { expiresIn: "7d" }
     );
 
@@ -142,6 +143,7 @@ export const login = async (req, res) => {
   }
 };
 
+// ✅ FUNGSI REGISTER — DIPERBAIKI: gunakan JWT_SECRET tanpa fallback
 export const register = async (req, res) => {
   const { full_name, email, password, role } = req.body;
   try {
@@ -163,7 +165,7 @@ export const register = async (req, res) => {
       role: "user",
     });
 
-    // Generate JWT
+    // ✅ DIPERBAIKI: gunakan JWT_SECRET saja (tanpa fallback)
     const token = jwt.sign(
       {
         id: newUser.id,
@@ -171,7 +173,7 @@ export const register = async (req, res) => {
         full_name: newUser.full_name,
         role: newUser.role,
       },
-      process.env.JWT_SECRET || "quickclick_secret_key",
+      process.env.JWT_SECRET, // ← pastikan dari .env
       { expiresIn: "7d" }
     );
 
@@ -191,8 +193,7 @@ export const register = async (req, res) => {
   }
 };
 
-// --- TAMBAHKAN INI DI AKHIR FILE (sebelum export jika pakai export manual) ---
-
+// --- FUNGSI DASHBOARD — TETAP UTUH ---
 export const getDashboardStats = async (req, res) => {
   try {
     // Hitung jumlah pengguna non-admin (sesuai logika getAllUsers Anda)

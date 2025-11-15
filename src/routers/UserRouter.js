@@ -8,7 +8,7 @@ import {
   getDashboardStats,
 } from "../controllers/UserController.js";
 import schemas from "../middlewares/Schema.js";
-import verifyToken from "../middlewares/VerifytToken.js";
+import verifyToken from "../middlewares/VerifyToken.js";
 // import {
 //   userCreateSchema,
 //   userUpdateSchema,
