@@ -1,30 +1,31 @@
+// src/middlewares/VerifyToken.js
 import jwt from "jsonwebtoken";
 
-const verifyToken = (req, res, next) => {
+const verifyToken = async (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
     console.log("❌ No token provided");
-    return res.sendStatus(401);
+    return res.status(401).json({ error: "No token provided" });
   }
 
-  // ✅ DIPERBAIKI: gunakan JWT_SECRET, bukan ACCESS_TOKEN
-  console.log(
-    "🔐 Verifying token with JWT_SECRET length:",
-    process.env.JWT_SECRET?.length || 0
-  );
+  try {
+    // ✅ Gunakan async/await agar error lebih jelas
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("🟢 Decoded user ID:", decoded.id);
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      console.error("🔴 JWT verify failed:", err.message);
-      return res.sendStatus(403);
+    if (!decoded.id) {
+      console.warn("⚠️ Token does not contain 'id'");
+      return res.status(401).json({ error: "Invalid token payload" });
     }
 
-    console.log("🟢 Decoded user ID:", decoded.id);
-    req.userId = decoded.id;
+    req.userId = decoded.id; // ✅ string UUID
     next();
-  });
+  } catch (err) {
+    console.error("🔴 JWT verification failed:", err.message);
+    return res.status(403).json({ error: "Invalid or expired token" });
+  }
 };
 
 export default verifyToken;
