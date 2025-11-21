@@ -17,25 +17,35 @@ export const shortenUrl = async (req, res) => {
     if (custom_short_link) {
       const raw = custom_short_link.trim();
       if (!raw) {
-        return res.status(400).json({ error: "Custom short link tidak boleh kosong" });
+        return res
+          .status(400)
+          .json({ error: "Custom short link tidak boleh kosong" });
       }
 
       // ✅ Izinkan huruf besar/kecil + angka, panjang 3–6
       if (raw.length < 3 || raw.length > 6) {
-        return res.status(400).json({ error: "Custom short link harus 3–6 karakter" });
+        return res
+          .status(400)
+          .json({ error: "Custom short link harus 3–6 karakter" });
       }
 
       if (!/^[a-zA-Z0-9]+$/.test(raw)) {
-        return res.status(400).json({ error: "Hanya boleh huruf (A–Z, a–z) dan angka (0–9)" });
+        return res
+          .status(400)
+          .json({ error: "Hanya boleh huruf (A–Z, a–z) dan angka (0–9)" });
       }
 
       // Normalisasi ke lowercase untuk penyimpanan & pengecekan unik
       const normalized = normalizeShortCode(raw);
 
       // Cek keunikan berdasarkan lowercase
-      const existing = await Link.findOne({ where: { short_link: normalized } });
+      const existing = await Link.findOne({
+        where: { short_link: normalized },
+      });
       if (existing) {
-        return res.status(409).json({ error: "Short link tersebut sudah digunakan" });
+        return res
+          .status(409)
+          .json({ error: "Short link tersebut sudah digunakan" });
       }
 
       shortCode = normalized; // simpan lowercase
@@ -54,7 +64,7 @@ export const shortenUrl = async (req, res) => {
     res.status(201).json({
       message: "Shortlink berhasil dibuat",
       short_url: `http://localhost:5000/${shortCode}`,
-       newLink,
+      newLink,
     });
   } catch (error) {
     console.error("Error in shortenUrl:", error);
@@ -101,7 +111,7 @@ export const redirectToOriginal = async (req, res) => {
 
     const link = await Link.findOne({ where: { short_link: normalized } });
     if (!link) return res.status(404).send("Link not found");
-    
+
     res.redirect(301, link.default_link); // 301 = permanent redirect
   } catch (error) {
     console.error("Redirect error:", error);

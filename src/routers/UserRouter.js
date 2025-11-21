@@ -1,28 +1,44 @@
+// routers/UserRouter.js
 import { Router } from "express";
+// --- TAMBAHKAN forgotPassword DAN resetPassword DI SINI ---
 import {
-  // updateUser,
-  // deleteUser,
   login,
   register,
   getAllUsers,
   getDashboardStats,
+  uploadAvatar,
+  upload, // ⬅️ Import upload dari UserController.js
+  forgotPassword,
+  resetPassword,
 } from "../controllers/UserController.js";
 import schemas from "../middlewares/Schema.js";
 import verifyToken from "../middlewares/VerifyToken.js";
-// import {
-//   userCreateSchema,
-//   userUpdateSchema,
-// } from "../validations/UserValidation.js";
-// import { authenticateToken } from "../middlewares/auth.js"; // 🔸 Impor middleware auth
 
 const router = Router();
 
+// Gunakan middleware verifyToken untuk endpoint yang memerlukan autentikasi
 router.get("/dashboard-stats", verifyToken, getDashboardStats);
 router.get("/users", verifyToken, getAllUsers);
-// router.post("/", schemas(userCreateSchema), createUser);
-// router.put("/:id", schemas(userUpdateSchema), updateUser);
-// router.delete("/:id", deleteUser);
+
+// Route untuk login dan register
 router.post("/login", login);
 router.post("/register", register);
+
+// --- TAMBAHKAN ROUTE INI ---
+// Route untuk forgot password - TIDAK PERLU autentikasi
+router.post("/forgot-password", forgotPassword);
+
+// Route untuk reset password - TIDAK PERLU autentikasi (token dari email)
+router.put("/reset-password/:token", resetPassword);
+// --------------------------
+
+// Route untuk upload avatar - PERLU autentikasi
+// Gunakan middleware verifyToken dan multer untuk upload file
+router.put(
+  "/upload-avatar/:id",
+  verifyToken,
+  upload.single("avatar"),
+  uploadAvatar
+); // Tambahkan route ini
 
 export default router;

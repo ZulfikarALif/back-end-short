@@ -27,6 +27,19 @@ const User = db.define(
       type: DataTypes.STRING,
       allowNull: false,
     },
+    avatar_url: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
+    },
+    resetToken: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    resetTokenExpires: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    }
   },
   {
     freezeTableName: true,

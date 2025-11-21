@@ -1,10 +1,209 @@
+// controllers/UserController.js
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { Op, Sequelize } from "sequelize";
 import Link from "../models/Link.js";
+import multer from "multer"; // Import multer
+import path from "path"; // Import path
+// --- TAMBAHKAN INI ---
+import nodemailer from "nodemailer";
+import crypto from "crypto";
+
 dotenv.config();
+
+// --- KONFIGURASI MULTER UNTUK UPLOAD AVATAR ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Pastikan folder 'uploads' ada di root project Anda
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    // Buat nama file unik untuk menghindari konflik
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+// ✅ Ekspor upload agar bisa digunakan di router
+export const upload = multer({
+  storage: storage,
+  // Batasi ukuran file (opsional)
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+  // Filter file (hanya gambar)
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed!"), false);
+    }
+  },
+});
+
+// --- FUNGSI HELPER UNTUK MENGIRIM EMAIL ---
+const sendResetEmail = async (email, token) => {
+  const transporter = nodemailer.createTransport({
+    service: "gmail", // Ganti jika menggunakan layanan lain
+    auth: {
+      user: process.env.EMAIL_USER, // Harus diatur di .env
+      pass: process.env.EMAIL_PASS, // Gunakan App Password untuk Gmail
+    },
+  });
+
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${token}`; // Ganti dengan URL frontend Anda
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Reset Password Anda",
+    html: `
+      <h2>Halo,</h2>
+      <p>Anda meminta reset password. Klik link di bawah ini untuk mereset password Anda:</p>
+      <a href="${resetUrl}" target="_blank">${resetUrl}</a>
+      <p>Link ini akan kadaluarsa dalam 1 jam.</p>
+      <p>Jika Anda tidak meminta reset password, abaikan email ini.</p>
+    `,
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
+// --- FUNGSI UNTUK FORGOT PASSWORD ---
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Cari user berdasarkan email
+    const user = await User.findOne({ where: { email } });
+
+    if (!user) {
+      // Untuk alasan keamanan, jangan beri tahu apakah email ada atau tidak
+      return res
+        .status(200)
+        .json({
+          message:
+            "Jika email Anda terdaftar, kami akan mengirimkan link reset password.",
+        });
+    }
+
+    // Generate token dan set expiry (1 jam)
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const resetTokenExpires = Date.now() + 3600000; // 1 jam dalam milidetik
+
+    // Simpan token dan expiry ke database
+    await user.update({
+      resetToken: resetToken,
+      resetTokenExpires: resetTokenExpires,
+    });
+
+    // Kirim email
+    await sendResetEmail(email, resetToken);
+
+    res
+      .status(200)
+      .json({ message: "Link reset password telah dikirim ke email Anda." });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res
+      .status(500)
+      .json({ message: "Terjadi kesalahan saat memproses permintaan." });
+  }
+};
+
+// --- FUNGSI UNTUK RESET PASSWORD ---
+export const resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { newPassword } = req.body;
+
+    // Cari user berdasarkan token dan cek apakah token masih valid
+    const user = await User.findOne({
+      where: {
+        resetToken: token,
+        resetTokenExpires: { [Op.gt]: Date.now() }, // Token belum kadaluarsa
+      },
+    });
+
+    if (!user) {
+      return res
+        .status(400)
+        .json({ message: "Token tidak valid atau telah kadaluarsa." });
+    }
+
+    // Hash password baru
+    const salt = await bcrypt.genSalt();
+    const hashedNewPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password dan hapus token
+    await user.update({
+      password: hashedNewPassword,
+      resetToken: null,
+      resetTokenExpires: null,
+    });
+
+    res
+      .status(200)
+      .json({
+        message:
+          "Password berhasil diubah. Silakan login dengan password baru Anda.",
+      });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res
+      .status(500)
+      .json({ message: "Terjadi kesalahan saat mereset password." });
+  }
+};
+
+// Fungsi untuk upload avatar
+export const uploadAvatar = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verifikasi bahwa user yang login adalah user yang avatar-nya diupload
+    // Middleware VerifyToken harus dijalankan dulu untuk menetapkan req.user.id
+    if (req.userId !== id) {
+      return res
+        .status(403)
+        .json({
+          message: "Access denied. Cannot update another user's avatar.",
+        });
+    }
+
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    // Simpan path relatif ke database
+    const avatarUrl = `${req.protocol}://${req.get("host")}/uploads/${
+      req.file.filename
+    }`;
+
+    await user.update({ avatar_url: avatarUrl });
+
+    // Kembalikan respons dengan avatar_url baru
+    return res.status(200).json({
+      message: "Avatar uploaded successfully",
+      avatar_url: avatarUrl,
+    });
+  } catch (error) {
+    console.error("Upload avatar error:", error);
+    return res
+      .status(500)
+      .json({
+        message: "Server error saat upload avatar",
+        error: error.message,
+      });
+  }
+};
 
 // controllers/UserController.js
 export const getAllUsers = async (req, res) => {
@@ -100,7 +299,7 @@ export const deleteUser = async (req, res) => {
   }
 };
 
-// 🔑 FUNGSI LOGIN — DIPERBAIKI: gunakan JWT_SECRET (bukan ACCESS_TOKEN)
+// 🔑 FUNGSI LOGIN — DIPERBAIKI: tambahkan avatar_url
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -135,6 +334,8 @@ export const login = async (req, res) => {
         email: user.email,
         full_name: user.full_name,
         role: user.role,
+        // Tambahkan avatar_url ke respons
+        avatar_url: user.avatar_url,
       },
     });
   } catch (error) {
@@ -143,7 +344,7 @@ export const login = async (req, res) => {
   }
 };
 
-// ✅ FUNGSI REGISTER — DIPERBAIKI: gunakan JWT_SECRET tanpa fallback
+// ✅ FUNGSI REGISTER — DIPERBAIKI: tambahkan avatar_url
 export const register = async (req, res) => {
   const { full_name, email, password, role } = req.body;
   try {
@@ -163,6 +364,8 @@ export const register = async (req, res) => {
       email,
       password: hashPassword,
       role: "user",
+      // Tambahkan avatar_url default (opsional)
+      avatar_url: null, // Atau URL default jika ingin
     });
 
     // ✅ DIPERBAIKI: gunakan JWT_SECRET saja (tanpa fallback)
@@ -185,6 +388,8 @@ export const register = async (req, res) => {
         email: newUser.email,
         full_name: newUser.full_name,
         role: newUser.role,
+        // Tambahkan avatar_url ke respons
+        avatar_url: newUser.avatar_url,
       },
     });
   } catch (error) {
