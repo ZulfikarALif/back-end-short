@@ -28,12 +28,10 @@ const storage = multer.diskStorage({
 
 // ✅ Ekspor upload agar bisa digunakan di router
 export const upload = multer({
-  storage: storage,
-  // Batasi ukuran file (opsional)
+  storage: storage, // Batasi ukuran file (opsional)
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB
-  },
-  // Filter file (hanya gambar)
+  }, // Filter file (hanya gambar)
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith("image/")) {
       cb(null, true);
@@ -60,12 +58,12 @@ const sendResetEmail = async (email, token) => {
     to: email,
     subject: "Reset Password Anda",
     html: `
-      <h2>Halo,</h2>
-      <p>Anda meminta reset password. Klik link di bawah ini untuk mereset password Anda:</p>
-      <a href="${resetUrl}" target="_blank">${resetUrl}</a>
-      <p>Link ini akan kadaluarsa dalam 1 jam.</p>
-      <p>Jika Anda tidak meminta reset password, abaikan email ini.</p>
-    `,
+      <h2>Halo,</h2>
+      <p>Anda meminta reset password. Klik link di bawah ini untuk mereset password Anda:</p>
+      <a href="${resetUrl}" target="_blank">${resetUrl}</a>
+      <p>Link ini akan kadaluarsa dalam 1 jam.</p>
+      <p>Jika Anda tidak meminta reset password, abaikan email ini.</p>
+    `,
   };
 
   await transporter.sendMail(mailOptions);
@@ -74,32 +72,26 @@ const sendResetEmail = async (email, token) => {
 // --- FUNGSI UNTUK FORGOT PASSWORD ---
 export const forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email } = req.body; // Cari user berdasarkan email
 
-    // Cari user berdasarkan email
     const user = await User.findOne({ where: { email } });
 
     if (!user) {
       // Untuk alasan keamanan, jangan beri tahu apakah email ada atau tidak
-      return res
-        .status(200)
-        .json({
-          message:
-            "Jika email Anda terdaftar, kami akan mengirimkan link reset password.",
-        });
-    }
+      return res.status(200).json({
+        message:
+          "Jika email Anda terdaftar, kami akan mengirimkan link reset password.",
+      });
+    } // Generate token dan set expiry (1 jam)
 
-    // Generate token dan set expiry (1 jam)
     const resetToken = crypto.randomBytes(32).toString("hex");
-    const resetTokenExpires = Date.now() + 3600000; // 1 jam dalam milidetik
+    const resetTokenExpires = Date.now() + 3600000; // 1 jam dalam milidetik // Simpan token dan expiry ke database
 
-    // Simpan token dan expiry ke database
     await user.update({
       resetToken: resetToken,
       resetTokenExpires: resetTokenExpires,
-    });
+    }); // Kirim email
 
-    // Kirim email
     await sendResetEmail(email, resetToken);
 
     res
@@ -117,9 +109,8 @@ export const forgotPassword = async (req, res) => {
 export const resetPassword = async (req, res) => {
   try {
     const { token } = req.params;
-    const { newPassword } = req.body;
+    const { newPassword } = req.body; // Cari user berdasarkan token dan cek apakah token masih valid
 
-    // Cari user berdasarkan token dan cek apakah token masih valid
     const user = await User.findOne({
       where: {
         resetToken: token,
@@ -131,25 +122,21 @@ export const resetPassword = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Token tidak valid atau telah kadaluarsa." });
-    }
+    } // Hash password baru
 
-    // Hash password baru
     const salt = await bcrypt.genSalt();
-    const hashedNewPassword = await bcrypt.hash(newPassword, salt);
+    const hashedNewPassword = await bcrypt.hash(newPassword, salt); // Update password dan hapus token
 
-    // Update password dan hapus token
     await user.update({
       password: hashedNewPassword,
       resetToken: null,
       resetTokenExpires: null,
     });
 
-    res
-      .status(200)
-      .json({
-        message:
-          "Password berhasil diubah. Silakan login dengan password baru Anda.",
-      });
+    res.status(200).json({
+      message:
+        "Password berhasil diubah. Silakan login dengan password baru Anda.",
+    });
   } catch (error) {
     console.error("Reset password error:", error);
     res
@@ -161,16 +148,12 @@ export const resetPassword = async (req, res) => {
 // Fungsi untuk upload avatar
 export const uploadAvatar = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // Verifikasi bahwa user yang login adalah user yang avatar-nya diupload // Middleware VerifyToken harus dijalankan dulu untuk menetapkan req.user.id
 
-    // Verifikasi bahwa user yang login adalah user yang avatar-nya diupload
-    // Middleware VerifyToken harus dijalankan dulu untuk menetapkan req.user.id
     if (req.userId !== id) {
-      return res
-        .status(403)
-        .json({
-          message: "Access denied. Cannot update another user's avatar.",
-        });
+      return res.status(403).json({
+        message: "Access denied. Cannot update another user's avatar.",
+      });
     }
 
     const user = await User.findByPk(id);
@@ -180,28 +163,24 @@ export const uploadAvatar = async (req, res) => {
 
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
-    }
+    } // Simpan path relatif ke database
 
-    // Simpan path relatif ke database
     const avatarUrl = `${req.protocol}://${req.get("host")}/uploads/${
       req.file.filename
     }`;
 
-    await user.update({ avatar_url: avatarUrl });
+    await user.update({ avatar_url: avatarUrl }); // Kembalikan respons dengan avatar_url baru
 
-    // Kembalikan respons dengan avatar_url baru
     return res.status(200).json({
       message: "Avatar uploaded successfully",
       avatar_url: avatarUrl,
     });
   } catch (error) {
     console.error("Upload avatar error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Server error saat upload avatar",
-        error: error.message,
-      });
+    return res.status(500).json({
+      message: "Server error saat upload avatar",
+      error: error.message,
+    });
   }
 };
 
@@ -224,10 +203,10 @@ export const getAllUsers = async (req, res) => {
           [
             // Subquery yang menghitung total link per user
             Sequelize.literal(`(
-          SELECT COUNT(*)
-          FROM links AS l
-          WHERE l.user_id = users.id
-        )`),
+          SELECT COUNT(*)
+          FROM links AS l
+          WHERE l.user_id = users.id
+        )`),
             "total_links",
           ],
         ],
@@ -244,12 +223,10 @@ export const getAllUsers = async (req, res) => {
       limit,
       offset,
       order: [["createdAt", "DESC"]],
-    });
+    }); // karena count berupa array, hitung manual total user
 
-    // karena count berupa array, hitung manual total user
-    const total = Array.isArray(count) ? count.length : count;
+    const total = Array.isArray(count) ? count.length : count; // bentuk ulang output biar rapi
 
-    // bentuk ulang output biar rapi
     const users = rows.map((user) => ({
       id: user.id,
       email: user.email,
@@ -312,9 +289,8 @@ export const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: "Email atau password salah" });
-    }
+    } // ✅ DIPERBAIKI: gunakan JWT_SECRET
 
-    // ✅ DIPERBAIKI: gunakan JWT_SECRET
     const token = jwt.sign(
       {
         id: user.id,
@@ -333,8 +309,7 @@ export const login = async (req, res) => {
         id: user.id,
         email: user.email,
         full_name: user.full_name,
-        role: user.role,
-        // Tambahkan avatar_url ke respons
+        role: user.role, // Tambahkan avatar_url ke respons
         avatar_url: user.avatar_url,
       },
     });
@@ -352,23 +327,19 @@ export const register = async (req, res) => {
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ message: "Email sudah terdaftar" });
-    }
+    } // Hash password
 
-    // Hash password
     const salt = await bcrypt.genSalt();
-    const hashPassword = await bcrypt.hash(password, salt);
+    const hashPassword = await bcrypt.hash(password, salt); // Buat user baru
 
-    // Buat user baru
     const newUser = await User.create({
       full_name,
       email,
       password: hashPassword,
-      role: "user",
-      // Tambahkan avatar_url default (opsional)
+      role: "user", // Tambahkan avatar_url default (opsional)
       avatar_url: null, // Atau URL default jika ingin
-    });
+    }); // ✅ DIPERBAIKI: gunakan JWT_SECRET saja (tanpa fallback)
 
-    // ✅ DIPERBAIKI: gunakan JWT_SECRET saja (tanpa fallback)
     const token = jwt.sign(
       {
         id: newUser.id,
@@ -387,8 +358,7 @@ export const register = async (req, res) => {
         id: newUser.id,
         email: newUser.email,
         full_name: newUser.full_name,
-        role: newUser.role,
-        // Tambahkan avatar_url ke respons
+        role: newUser.role, // Tambahkan avatar_url ke respons
         avatar_url: newUser.avatar_url,
       },
     });
@@ -398,22 +368,29 @@ export const register = async (req, res) => {
   }
 };
 
-// --- FUNGSI DASHBOARD — TETAP UTUH ---
+// --- FUNGSI DASHBOARD — DIPERBAHARUI (FIX TOTAL LINKS) ---
 export const getDashboardStats = async (req, res) => {
   try {
-    // Hitung jumlah pengguna non-admin (sesuai logika getAllUsers Anda)
+    // 1. Hitung jumlah pengguna non-admin
     const totalUsers = await User.count({
       where: {
         role: { [Op.not]: "admin" },
       },
-    });
+    }); // 2. Hitung Total Link. Menggunakan raw query dengan nama tabel 'links' // untuk memastikan hitungan yang benar, seperti yang terlihat pada fungsi getAllUsers.
+
+    const [results] = await Link.sequelize.query(
+      "SELECT COUNT(*) as count FROM links"
+    );
+    const totalLinks = Number(results[0].count); // Pastikan hasilnya adalah angka // 3. Hitung Domain Aktif (Nilai mock)
+
+    const totalActiveDomains = 24; // 4. Mengembalikan data ke format yang diharapkan frontend
 
     return res.status(200).json({
       success: true,
       data: {
         totalUsers,
-        totalLinks: 0, // placeholder — isi nanti kalau sudah ada Link model aktif
-        activeDomains: 0, // placeholder
+        totalLinks,
+        activeDomains: totalActiveDomains,
       },
     });
   } catch (error) {
@@ -422,5 +399,52 @@ export const getDashboardStats = async (req, res) => {
       success: false,
       message: "Gagal mengambil statistik dashboard",
     });
+  }
+};
+
+// --- FUNGSI UNTUK UPDATE PASSWORD ---
+export const updatePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmNewPassword } = req.body; // Ambil userId dari middleware verifyToken
+
+    const userId = req.userId; // Validasi input
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      return res.status(400).json({ message: "Semua field wajib diisi." });
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      return res
+        .status(400)
+        .json({ message: "Konfirmasi password tidak cocok." });
+    }
+
+    if (newPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password baru minimal 6 karakter." });
+    } // Ambil user dari database
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User tidak ditemukan." });
+    } // Cocokkan password lama dengan bcrypt
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Password lama salah." });
+    } // Hash password baru
+
+    const salt = await bcrypt.genSalt();
+    const hashedNewPassword = await bcrypt.hash(newPassword, salt); // Update password di database
+
+    await user.update({ password: hashedNewPassword });
+
+    res.status(200).json({ message: "Password berhasil diperbarui." });
+  } catch (error) {
+    console.error("Update password error:", error);
+    res
+      .status(500)
+      .json({ message: "Terjadi kesalahan saat memperbarui password." });
   }
 };

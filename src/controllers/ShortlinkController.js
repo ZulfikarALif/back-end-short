@@ -1,4 +1,6 @@
 import Link from "../models/Link.js";
+// ✅ TAMBAHKAN INI: Import model User
+import User from "../models/User.js";
 
 // Helper: normalisasi short code ke lowercase
 const normalizeShortCode = (code) => code.trim().toLowerCase();
@@ -116,5 +118,37 @@ export const redirectToOriginal = async (req, res) => {
   } catch (error) {
     console.error("Redirect error:", error);
     res.status(500).send("Server error");
+  }
+};
+
+
+export const getDashboardStats = async (req, res) => {
+  try {
+    // Import db dari Database.js
+    const { default: db } = await import("../configs/Database.js");
+
+    // Raw query untuk total link
+    const [linkResults] = await db.query("SELECT COUNT(*) as count FROM short_links");
+    const totalLinks = linkResults[0].count;
+
+    // Raw query untuk total user
+    const [userResults] = await db.query("SELECT COUNT(*) as count FROM users");
+    const totalUsers = userResults[0].count;
+
+    console.log("Raw Query Total Links:", totalLinks); // 🔥 LOG INI
+    console.log("Raw Query Total Users:", totalUsers); // 🔥 LOG INI
+
+    const activeDomains = 24;
+
+    res.status(200).json({
+      data: {
+        totalUsers,
+        totalLinks,
+        activeDomains,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error);
+    res.status(500).json({ error: "Gagal mengambil statistik dashboard" });
   }
 };

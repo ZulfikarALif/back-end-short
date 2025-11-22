@@ -1,10 +1,14 @@
-// src/routes/ShortlinkRouter.js
 import { Router } from "express";
 import {
   shortenUrl,
   redirectToOriginal,
   getAllLinks,
+  // ✅ TAMBAHKAN INI: import fungsi getDashboardStats
+  getDashboardStats,
 } from "../controllers/ShortlinkController.js";
+
+// ✅ Import fungsi deleteLink dari LinkController
+import { deleteLink } from "../controllers/LinkController.js";
 
 import { createShortlinkSchema } from "../validations/ShortlinkValidation.js";
 import schemas from "../middlewares/Schema.js";
@@ -32,6 +36,12 @@ router.post(
   verifyToken,
   schemas(createShortlinkSchema),
   shortenUrl
-); // <-- Ini yang kamu butuhkan!
+);
+
+// ✅ BARU: DELETE /api/links/:id → hapus link
+router.delete("/api/links/:id", verifyToken, deleteLink);
+
+// ✅ BARU: GET /api/dashboard-stats → ambil statistik dashboard
+router.get("/api/dashboard-stats", verifyToken, getDashboardStats);
 
 export default router;

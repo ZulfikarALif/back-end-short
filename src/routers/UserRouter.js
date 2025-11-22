@@ -1,15 +1,16 @@
 // routers/UserRouter.js
 import { Router } from "express";
-// --- TAMBAHKAN forgotPassword DAN resetPassword DI SINI ---
+
 import {
   login,
   register,
   getAllUsers,
   getDashboardStats,
   uploadAvatar,
-  upload, // ⬅️ Import upload dari UserController.js
+  upload,
   forgotPassword,
   resetPassword,
+  updatePassword
 } from "../controllers/UserController.js";
 import schemas from "../middlewares/Schema.js";
 import verifyToken from "../middlewares/VerifyToken.js";
@@ -40,5 +41,7 @@ router.put(
   upload.single("avatar"),
   uploadAvatar
 ); // Tambahkan route ini
+ // Route untuk update password - PERLU autentikasi
+router.patch("/password", verifyToken, updatePassword);
 
 export default router;
