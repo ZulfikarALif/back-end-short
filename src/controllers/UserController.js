@@ -58,12 +58,12 @@ const sendResetEmail = async (email, token) => {
     to: email,
     subject: "Reset Password Anda",
     html: `
-      <h2>Halo,</h2>
-      <p>Anda meminta reset password. Klik link di bawah ini untuk mereset password Anda:</p>
-      <a href="${resetUrl}" target="_blank">${resetUrl}</a>
-      <p>Link ini akan kadaluarsa dalam 1 jam.</p>
-      <p>Jika Anda tidak meminta reset password, abaikan email ini.</p>
-    `,
+      <h2>Halo,</h2>
+      <p>Anda meminta reset password. Klik link di bawah ini untuk mereset password Anda:</p>
+      <a href="${resetUrl}" target="_blank">${resetUrl}</a>
+      <p>Link ini akan kadaluarsa dalam 1 jam.</p>
+      <p>Jika Anda tidak meminta reset password, abaikan email ini.</p>
+    `,
   };
 
   await transporter.sendMail(mailOptions);
@@ -191,52 +191,50 @@ export const getAllUsers = async (req, res) => {
     const current = Number(page);
     const limit = Number(page_size);
     const offset = (current - 1) * limit;
+
     const where = {
       ...(search && { full_name: { [Op.like]: `%${search}%` } }),
-      role: {
-        [Op.not]: "admin",
-      },
+      role: { [Op.not]: "admin" },
     };
+
+    // Query untuk mendapatkan daftar user
     const { count, rows } = await User.findAndCountAll({
-      attributes: {
-        include: [
-          [
-            // Subquery yang menghitung total link per user
-            Sequelize.literal(`(
-          SELECT COUNT(*)
-          FROM links AS l
-          WHERE l.user_id = users.id
-        )`),
-            "total_links",
-          ],
-        ],
-      },
-      include: [
-        {
-          model: Link,
-          as: "links",
-          attributes: [],
-          required: false,
-        },
-      ],
       where,
       limit,
       offset,
       order: [["createdAt", "DESC"]],
-    }); // karena count berupa array, hitung manual total user
+    });
 
-    const total = Array.isArray(count) ? count.length : count; // bentuk ulang output biar rapi
+    // Ambil ID user untuk hitung link
+    const userIds = rows.map((u) => u.id);
 
+    // Hitung total link per user
+    const linkCounts = await Link.findAll({
+      attributes: [
+        "user_id",
+        [Sequelize.fn("COUNT", Sequelize.col("id")), "total_links"],
+      ],
+      where: { user_id: { [Op.in]: userIds } },
+      group: ["user_id"],
+    });
+
+    // Buat mapping dari hasil linkCounts
+    const linkCountMap = {};
+    linkCounts.forEach((row) => {
+      linkCountMap[row.user_id] = parseInt(row.dataValues.total_links);
+    });
+
+    // Gabungkan data
     const users = rows.map((user) => ({
       id: user.id,
       email: user.email,
       full_name: user.full_name,
       role: user.role,
       createdAt: user.createdAt,
-      total_links: user.get("total_links"),
+      total_links: linkCountMap[user.id] || 0,
     }));
 
-    return res.status(200).json({ users, total });
+    return res.status(200).json({ users, total: count });
   } catch (error) {
     console.error("Error fetching users:", error);
     return res.status(500).json({ error: "Gagal mengambil daftar pengguna" });
@@ -376,7 +374,7 @@ export const getDashboardStats = async (req, res) => {
       where: {
         role: { [Op.not]: "admin" },
       },
-    }); // 2. Hitung Total Link. Menggunakan raw query dengan nama tabel 'links' // untuk memastikan hitungan yang benar, seperti yang terlihat pada fungsi getAllUsers.
+    }); // 2. Hitung Total Link. Menggunakan raw query dengan nama tabel 'links' // untuk memastikan hitungan yang benar
 
     const [results] = await Link.sequelize.query(
       "SELECT COUNT(*) as count FROM links"

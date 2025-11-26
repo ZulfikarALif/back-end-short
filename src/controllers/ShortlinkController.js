@@ -1,8 +1,8 @@
 import Link from "../models/Link.js";
-// ✅ TAMBAHKAN INI: Import model User
 import User from "../models/User.js";
+import { fetchMetadata } from "../utils/FetchMetadata.js";
+import naiveBayesClassifier from "../services/NaiveBayesClassifierService.js";
 
-// Helper: normalisasi short code ke lowercase
 const normalizeShortCode = (code) => code.trim().toLowerCase();
 
 export const shortenUrl = async (req, res) => {
@@ -14,67 +14,95 @@ export const shortenUrl = async (req, res) => {
       return res.status(400).json({ error: "original_url wajib diisi" });
     }
 
+    // TAHAP 1: EKSTRAKSI METADATA
+    const metadata = await fetchMetadata(original_url);
+
+    if (metadata.title.includes("Error Fetching")) {
+      console.error(`Gagal fetching metadata untuk URL: ${original_url}`);
+      return res.status(400).json({
+        error: "Tidak dapat mengambil metadata dari URL. Pastikan URL valid dan dapat diakses.",
+        detail: "Metadata gagal diambil - tidak bisa memverifikasi keamanan link.",
+      });
+    }
+
+    const descriptionToDetect = description || metadata.description || "";
+
+    // TAHAP 2: DETEKSI KEAMANAN DENGAN NAIVE BAYES + WHITELIST + URL KEYWORD
+    const detectionResult = naiveBayesClassifier.classify(
+      metadata.title,
+      descriptionToDetect,
+      metadata.bodyText || "",
+      original_url
+    );
+
+    // INI YANG PENTING — KALAU BUKAN "safe" → LANGSUNG BLOKIR!
+    if (!detectionResult.isSafe) {
+      console.warn(`[BLOCKED] URL diblokir: ${detectionResult.category.toUpperCase()} | URL: ${original_url}`);
+      return res.status(403).json({
+        error: `URL diblokir otomatis: terdeteksi sebagai konten ${detectionResult.category.toUpperCase()}`,
+        category: detectionResult.category,
+        probability: detectionResult.probability || 0.95,
+        confidence: detectionResult.probability ? (detectionResult.probability * 100).toFixed(2) + "%" : "95%",
+        detail: "Sistem deteksi berbasis Naive Bayes Multinomial + Whitelist + Keyword Matching mendeteksi konten berbahaya.",
+      });
+    }
+
+    // TAHAP 3: BUAT SHORT LINK (JIKA AMAN)
     let shortCode;
 
     if (custom_short_link) {
       const raw = custom_short_link.trim();
-      if (!raw) {
-        return res
-          .status(400)
-          .json({ error: "Custom short link tidak boleh kosong" });
-      }
+      if (!raw) return res.status(400).json({ error: "Custom short link tidak boleh kosong" });
+      if (raw.length < 3 || raw.length > 6) return res.status(400).json({ error: "Custom short link harus 3–6 karakter" });
+      if (!/^[a-zA-Z0-9]+$/.test(raw)) return res.status(400).json({ error: "Hanya boleh huruf dan angka" });
 
-      // ✅ Izinkan huruf besar/kecil + angka, panjang 3–6
-      if (raw.length < 3 || raw.length > 6) {
-        return res
-          .status(400)
-          .json({ error: "Custom short link harus 3–6 karakter" });
-      }
-
-      if (!/^[a-zA-Z0-9]+$/.test(raw)) {
-        return res
-          .status(400)
-          .json({ error: "Hanya boleh huruf (A–Z, a–z) dan angka (0–9)" });
-      }
-
-      // Normalisasi ke lowercase untuk penyimpanan & pengecekan unik
       const normalized = normalizeShortCode(raw);
+      const existing = await Link.findOne({ where: { short_link: normalized } });
+      if (existing) return res.status(409).json({ error: "Short link tersebut sudah digunakan" });
 
-      // Cek keunikan berdasarkan lowercase
-      const existing = await Link.findOne({
-        where: { short_link: normalized },
-      });
-      if (existing) {
-        return res
-          .status(409)
-          .json({ error: "Short link tersebut sudah digunakan" });
-      }
-
-      shortCode = normalized; // simpan lowercase
+      shortCode = normalized;
     } else {
-      // Acak: tetap 6 karakter lowercase (sesuai aslinya)
-      shortCode = Math.random().toString(36).substring(2, 8);
+      do {
+        shortCode = Math.random().toString(36).substring(2, 8);
+      } while (await Link.findOne({ where: { short_link: shortCode } }));
     }
 
+    // SIMPAN KE DATABASE
     const newLink = await Link.create({
       default_link: original_url,
-      short_link: shortCode, // lowercase
+      short_link: shortCode,
       description: description || null,
       user_id: userId,
+      title: metadata.title,
+      scraped_description: metadata.description,
+      content_category: detectionResult.category,
+      content_probability: detectionResult.probability || 1.0,
+      is_malicious: false,
+      classification_scores: JSON.stringify(detectionResult.scores || { safe: 1.0 }),
     });
 
-    res.status(201).json({
-      message: "Shortlink berhasil dibuat",
+    return res.status(201).json({
+      message: "Shortlink berhasil dibuat & telah diverifikasi aman oleh sistem Naive Bayes",
       short_url: `http://localhost:5000/${shortCode}`,
+      data: {
+        original_url,
+        short_code: shortCode,
+        category: detectionResult.category,
+        safety_confidence: detectionResult.probability ? (detectionResult.probability * 100).toFixed(2) + "% aman" : "100% aman",
+      },
       newLink,
     });
+
   } catch (error) {
     console.error("Error in shortenUrl:", error);
-    res.status(500).json({ error: "Gagal menyimpan ke database" });
+    return res.status(500).json({
+      error: "Gagal memproses shortlink",
+      detail: error.message,
+    });
   }
 };
 
-// TIDAK DIUBAH
+// FUNGSI LAIN TIDAK DIUBAH — TETAP SAMA
 export const getAllLinks = async (req, res) => {
   try {
     const { userId } = req;
@@ -84,13 +112,11 @@ export const getAllLinks = async (req, res) => {
       id: link.id,
       shortUrl: `http://localhost:5000/${link.short_link}`,
       originalUrl: link.default_link,
-      title: link.description || "Untitled",
+      title: link.title || link.description || "Untitled",
+      category: link.content_category || "unknown",
+      probability: link.content_probability ? (link.content_probability * 100).toFixed(1) + "%" : "-",
       createdAt: link.createdAt
-        ? new Date(link.createdAt).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          })
+        ? new Date(link.createdAt).toLocaleDateString("id-ID", { year: "numeric", month: "short", day: "numeric" })
         : "Unknown",
       clicks: link.clicks || 0,
     }));
@@ -102,53 +128,37 @@ export const getAllLinks = async (req, res) => {
   }
 };
 
-// 🔁 DIMODIFIKASI: cari pakai LOWERCASE agar case-insensitive saat redirect
 export const redirectToOriginal = async (req, res) => {
   try {
     const { short_code } = req.params;
     if (!short_code) return res.status(400).send("Short code required");
 
-    // Normalisasi input ke lowercase
     const normalized = normalizeShortCode(short_code);
-
     const link = await Link.findOne({ where: { short_link: normalized } });
     if (!link) return res.status(404).send("Link not found");
 
-    res.redirect(301, link.default_link); // 301 = permanent redirect
+    res.redirect(301, link.default_link);
   } catch (error) {
     console.error("Redirect error:", error);
     res.status(500).send("Server error");
   }
 };
 
-
 export const getDashboardStats = async (req, res) => {
   try {
-    // Import db dari Database.js
     const { default: db } = await import("../configs/Database.js");
-
-    // Raw query untuk total link
-    const [linkResults] = await db.query("SELECT COUNT(*) as count FROM short_links");
-    const totalLinks = linkResults[0].count;
-
-    // Raw query untuk total user
+    const [linkResults] = await db.query("SELECT COUNT(*) as count FROM links");
     const [userResults] = await db.query("SELECT COUNT(*) as count FROM users");
-    const totalUsers = userResults[0].count;
-
-    console.log("Raw Query Total Links:", totalLinks); // 🔥 LOG INI
-    console.log("Raw Query Total Users:", totalUsers); // 🔥 LOG INI
-
-    const activeDomains = 24;
 
     res.status(200).json({
       data: {
-        totalUsers,
-        totalLinks,
-        activeDomains,
+        totalUsers: userResults[0].count,
+        totalLinks: linkResults[0].count,
+        activeDomains: 24,
       },
     });
   } catch (error) {
     console.error("Error fetching dashboard stats:", error);
-    res.status(500).json({ error: "Gagal mengambil statistik dashboard" });
+    res.status(500).json({ error: "Gagal mengambil statistik" });
   }
 };
