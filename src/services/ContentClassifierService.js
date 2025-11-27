@@ -1,146 +1,69 @@
 // src/services/ContentClassifierService.js
+// VERSI FINAL (FAIL-SAFE) — Jika Python Error, Link DITOLAK.
 
-// Kata kunci berbahaya berdasarkan kategori
-const BAD_KEYWORDS = {
-  gambling: [
-    "kasino",
-    "slot online",
-    "judi",
-    "togel",
-    "bola tangkas",
-    "poker online",
-    "betting",
-    "casino",
-    "bet",
-    "win",
-    "jackpot",
-    "main judi",
-    "agen judi",
-    "raja judi",
-    "situs judi",
-    "taruhan",
-    "uang asli",
-    "bonus besar",
-    "daftar sekarang",
-    "keberuntungan",
-  ],
-  phishing: [
-    "login sekarang",
-    "akun anda diblokir",
-    "verifikasi segera",
-    "klik sekarang",
-    "penipuan",
-    "hack akun",
-    "carding",
-    "phishing",
-    "data pribadi",
-    "password anda",
-    "rekening anda",
-    "peringatan keamanan",
-    "aktivitas mencurigakan",
-    "akun dinonaktifkan",
-  ],
-  adult: [
-    "dewasa",
-    "porno",
-    "seks",
-    "vulgar",
-    "erotik",
-    "bokep",
-    "sex",
-    "hot",
-    "nude",
-    "desah",
-    "memek",
-    "kontol",
-    "coli",
-    "masturbasi",
-    "bugil",
-    "telanjang",
-    "panas",
-    "dada",
-    "pantat",
-    "intim",
-    "ranjang",
-    "sensual",
-    "gairah",
-    "liar",
-    "dewasa 18+",
-    "dewasa 21+",
-  ],
-  malware: [
-    "unduh sekarang",
-    "install aplikasi",
-    "klik link ini",
-    "file berbahaya",
-    "virus",
-    "malware",
-    "keamanan terganggu",
-    "klik untuk aman",
-    "update sekarang",
-    "scan virus",
-    "rootkit",
-    "trojan",
-    "keylogger",
-    "spyware",
-    "adware",
-    "rantai perangkat lunak",
-  ],
-};
+import axios from "axios";
 
-/**
- * Klasifikasi konten berdasarkan title dan description
- * @param {string} title - Judul halaman
- * @param {string} description - Deskripsi halaman
- * @returns {Object} - { isSafe: boolean, category: string, message: string, probability: number }
- */
-export const classifyContent = (
-  title,
-  description,
+const ML_API = "http://127.0.0.1:5000/classify"; // Flask Python kamu
+
+export const classifyContent = async (
+  title = "",
+  description = "",
   bodyText = "",
   url = ""
 ) => {
-  // Gabungkan semua teks untuk analisis, termasuk URL
-  const content = `${title} ${description} ${bodyText} ${url}`.toLowerCase();
-  let detectedCategory = null;
-  let maxScore = 0;
+  // Gabungkan semua teks yang tersedia
+  const text = [title, description, bodyText].filter(Boolean).join(" ").trim();
 
-  for (const [category, keywords] of Object.entries(BAD_KEYWORDS)) {
-    let score = 0;
-    for (const keyword of keywords) {
-      if (content.includes(keyword.toLowerCase())) {
-        score++;
-      }
-    }
-    if (score > maxScore) {
-      maxScore = score;
-      detectedCategory = category;
-    }
-  }
-
-  // Jika tidak ada kata kunci yang cocok, anggap aman
-  if (!detectedCategory) {
+  // Validasi awal: Kalau teks dan url kosong, anggap aman (atau bisa ditolak juga tergantung kebijakan)
+  if (!text && !url) {
     return {
       isSafe: true,
       category: "safe",
-      message: "Tautan aman dari konten berbahaya.",
       probability: 0,
+      confidence: 1.0,
+      message: "Tidak ada konten untuk dianalisis",
+      scores: {},
     };
   }
 
-  // Semakin banyak kata kunci cocok, semakin tinggi probabilitas
-  const probability = Math.min(
-    maxScore / BAD_KEYWORDS[detectedCategory].length,
-    1
-  );
+  try {
+    // 1. Coba panggil Flask API
+    const response = await axios.post(
+      ML_API,
+      { text, url },
+      { timeout: 5000 } // Timeout 5 detik (jangan terlalu lama menunggu)
+    );
 
-  // Jika probabilitas >= 0.5, anggap berbahaya
-  const isSafe = probability < 0.5;
+    const r = response.data;
 
-  return {
-    isSafe,
-    category: detectedCategory,
-    message: `Konten terdeteksi sebagai ${detectedCategory}.`,
-    probability: parseFloat(probability.toFixed(2)),
-  };
+    // 2. Jika sukses terhubung, kembalikan hasil prediksi Flask
+    return {
+      isSafe: r.is_safe,
+      category: r.category || "unknown",
+      probability: 1 - r.confidence,
+      confidence: r.confidence,
+      message: `Naive Bayes: ${r.category.toUpperCase()} (${(
+        r.confidence * 100
+      ).toFixed(1)}% yakin)`,
+      scores: r.all_probabilities || {},
+    };
+  } catch (error) {
+    // 3. JIKA FLASK ERROR / OFFLINE
+    console.error(
+      "⚠️ CRITICAL: ML Service (Python) Gagal Dihubungi:",
+      error.message
+    );
+
+    // PERUBAHAN PENTING DI SINI:
+    // Kembalikan isSafe: FALSE agar ShortlinkController MEMBLOKIR request.
+    return {
+      isSafe: false, // <--- DIBLOKIR KARENA SISTEM DETEKSI MATI
+      category: "system_error",
+      probability: 1.0,
+      confidence: 0.0,
+      message:
+        "Layanan keamanan sedang offline. Link diblokir sementara demi keamanan.",
+      scores: {},
+    };
+  }
 };

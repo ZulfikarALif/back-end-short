@@ -1,7 +1,7 @@
 import Link from "../models/Link.js";
 import User from "../models/User.js";
 import { fetchMetadata } from "../utils/FetchMetadata.js";
-import naiveBayesClassifier from "../services/NaiveBayesClassifierService.js";
+import { classifyContent } from "../services/ContentClassifierService.js"; // ← PAKAI YANG BARU!
 
 const normalizeShortCode = (code) => code.trim().toLowerCase();
 
@@ -18,38 +18,34 @@ export const shortenUrl = async (req, res) => {
     const metadata = await fetchMetadata(original_url);
 
     if (metadata.title.includes("Error Fetching")) {
-      console.error(`Gagal fetching metadata untuk URL: ${original_url}`);
       return res.status(400).json({
         error: "Tidak dapat mengambil metadata dari URL. Pastikan URL valid dan dapat diakses.",
-        detail: "Metadata gagal diambil - tidak bisa memverifikasi keamanan link.",
       });
     }
 
     const descriptionToDetect = description || metadata.description || "";
 
-    // TAHAP 2: DETEKSI KEAMANAN DENGAN NAIVE BAYES + WHITELIST + URL KEYWORD
-    const detectionResult = naiveBayesClassifier.classify(
+    // TAHAP 2: DETEKSI PAKAI NAIVE BAYES DARI PYTHON (FLASK)
+    const detectionResult = await classifyContent(
       metadata.title,
       descriptionToDetect,
       metadata.bodyText || "",
       original_url
     );
 
-    // INI YANG PENTING — KALAU BUKAN "safe" → LANGSUNG BLOKIR!
+    // BLOKIR KALAU TIDAK AMAN
     if (!detectionResult.isSafe) {
-      console.warn(`[BLOCKED] URL diblokir: ${detectionResult.category.toUpperCase()} | URL: ${original_url}`);
+      console.warn(`[BLOCKED] ${detectionResult.category.toUpperCase()} | ${original_url}`);
       return res.status(403).json({
-        error: `URL diblokir otomatis: terdeteksi sebagai konten ${detectionResult.category.toUpperCase()}`,
+        error: `URL diblokir otomatis: terdeteksi sebagai ${detectionResult.category.toUpperCase()}`,
         category: detectionResult.category,
-        probability: detectionResult.probability || 0.95,
-        confidence: detectionResult.probability ? (detectionResult.probability * 100).toFixed(2) + "%" : "95%",
-        detail: "Sistem deteksi berbasis Naive Bayes Multinomial + Whitelist + Keyword Matching mendeteksi konten berbahaya.",
+        confidence: (detectionResult.confidence * 100).toFixed(2) + "%",
+        detail: "Sistem deteksi berbasis Naive Bayes (Python) mendeteksi konten berbahaya.",
       });
     }
 
-    // TAHAP 3: BUAT SHORT LINK (JIKA AMAN)
+    // BUAT SHORT CODE
     let shortCode;
-
     if (custom_short_link) {
       const raw = custom_short_link.trim();
       if (!raw) return res.status(400).json({ error: "Custom short link tidak boleh kosong" });
@@ -76,21 +72,20 @@ export const shortenUrl = async (req, res) => {
       title: metadata.title,
       scraped_description: metadata.description,
       content_category: detectionResult.category,
-      content_probability: detectionResult.probability || 1.0,
-      is_malicious: false,
-      classification_scores: JSON.stringify(detectionResult.scores || { safe: 1.0 }),
+      content_probability: detectionResult.confidence || 1.0,
+      is_malicious: !detectionResult.isSafe,
+      classification_scores: JSON.stringify(detectionResult.scores || {}),
     });
 
     return res.status(201).json({
-      message: "Shortlink berhasil dibuat & telah diverifikasi aman oleh sistem Naive Bayes",
+      message: "Shortlink berhasil dibuat & telah diverifikasi aman oleh Naive Bayes (Python)",
       short_url: `http://localhost:5000/${shortCode}`,
       data: {
         original_url,
         short_code: shortCode,
         category: detectionResult.category,
-        safety_confidence: detectionResult.probability ? (detectionResult.probability * 100).toFixed(2) + "% aman" : "100% aman",
+        safety_confidence: (detectionResult.confidence * 100).toFixed(1) + "% yakin aman",
       },
-      newLink,
     });
 
   } catch (error) {
