@@ -1,5 +1,5 @@
 // src/services/ContentClassifierService.js
-// VERSI FINAL (FAIL-SAFE) — Jika Python Error, Link DITOLAK.
+// VERSI DIPERKUAT — Fail-Safe & Threshold Confidence
 
 import axios from "axios";
 
@@ -27,14 +27,20 @@ export const classifyContent = async (
   }
 
   try {
+    console.log("=== Sending to Flask API ===");
+    console.log("URL:", url);
+    console.log("Text (first 200 chars):", text.substring(0, 200));
+
     // 1. Coba panggil Flask API
     const response = await axios.post(
       ML_API,
       { text, url },
-      { timeout: 5000 } // Timeout 5 detik (jangan terlalu lama menunggu)
+      { timeout: 10000 } // Timeout 10 detik (jangan terlalu lama menunggu)
     );
 
     const r = response.data;
+
+    console.log("Flask API Response:", r);
 
     // 2. Jika sukses terhubung, kembalikan hasil prediksi Flask
     return {
@@ -48,14 +54,13 @@ export const classifyContent = async (
       scores: r.all_probabilities || {},
     };
   } catch (error) {
-    // 3. JIKA FLASK ERROR / OFFLINE
+    // 3. JIKA FLASK ERROR / OFFLINE / TIMEOUT
     console.error(
       "⚠️ CRITICAL: ML Service (Python) Gagal Dihubungi:",
       error.message
     );
 
-    // PERUBAHAN PENTING DI SINI:
-    // Kembalikan isSafe: FALSE agar ShortlinkController MEMBLOKIR request.
+    // PERUBAHAN PENTING: JIKA SISTEM ERROR, ANG GAPTEK BISA JAHAT
     return {
       isSafe: false, // <--- DIBLOKIR KARENA SISTEM DETEKSI MATI
       category: "system_error",

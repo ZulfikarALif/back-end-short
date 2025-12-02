@@ -5,6 +5,28 @@ import { classifyContent } from "../services/ContentClassifierService.js"; // â†
 
 const normalizeShortCode = (code) => code.trim().toLowerCase();
 
+// (Opsional) Daftar domain yang dianggap aman secara default
+const WHITELIST_DOMAINS = [
+  'youtube.com',
+  'youtu.be',
+  'google.com',
+  'gemini.google.com',
+  'github.com',
+  'wikipedia.org',
+  'linkedin.com',
+  'instagram.com',
+  'twitter.com',
+  'facebook.com',
+  'netflix.com',
+  'spotify.com',
+  'amazon.com',
+  'microsoft.com',
+  'apple.com',
+  'openai.com',
+  'chatgpt.com',
+  'claude.ai'
+];
+
 export const shortenUrl = async (req, res) => {
   try {
     const { userId } = req;
@@ -14,24 +36,42 @@ export const shortenUrl = async (req, res) => {
       return res.status(400).json({ error: "original_url wajib diisi" });
     }
 
-    // TAHAP 1: EKSTRAKSI METADATA
-    const metadata = await fetchMetadata(original_url);
+    // TAHAP 0: Cek whitelist domain (opsional)
+    let detectionResult;
+    try {
+      const urlObj = new URL(original_url);
+      if (WHITELIST_DOMAINS.some(domain => urlObj.hostname.includes(domain))) {
+        console.log(`[WHITELISTED] ${original_url} - skipping AI check`);
+        detectionResult = {
+          isSafe: true,
+          category: 'whitelisted',
+          confidence: 1.0,
+          scores: {}
+        };
+      } else {
+        // TAHAP 1: EKSTRAKSI METADATA
+        const metadata = await fetchMetadata(original_url);
 
-    if (metadata.title.includes("Error Fetching")) {
-      return res.status(400).json({
-        error: "Tidak dapat mengambil metadata dari URL. Pastikan URL valid dan dapat diakses.",
-      });
+        if (metadata.title.includes("Error Fetching")) {
+          return res.status(400).json({
+            error: "Tidak dapat mengambil metadata dari URL. Pastikan URL valid dan dapat diakses.",
+          });
+        }
+
+        const descriptionToDetect = description || metadata.description || "";
+
+        // TAHAP 2: DETEKSI PAKAI NAIVE BAYES DARI PYTHON (FLASK)
+        detectionResult = await classifyContent(
+          metadata.title,
+          descriptionToDetect,
+          metadata.bodyText || "",
+          original_url
+        );
+      }
+    } catch (e) {
+      // Jika URL tidak valid
+      return res.status(400).json({ error: "Format URL tidak valid." });
     }
-
-    const descriptionToDetect = description || metadata.description || "";
-
-    // TAHAP 2: DETEKSI PAKAI NAIVE BAYES DARI PYTHON (FLASK)
-    const detectionResult = await classifyContent(
-      metadata.title,
-      descriptionToDetect,
-      metadata.bodyText || "",
-      original_url
-    );
 
     // BLOKIR KALAU TIDAK AMAN
     if (!detectionResult.isSafe) {
@@ -69,8 +109,8 @@ export const shortenUrl = async (req, res) => {
       short_link: shortCode,
       description: description || null,
       user_id: userId,
-      title: metadata.title,
-      scraped_description: metadata.description,
+      title: detectionResult.category === 'whitelisted' ? 'Whitelisted Link' : (await fetchMetadata(original_url)).title,
+      scraped_description: detectionResult.category === 'whitelisted' ? 'Whitelisted Link' : (await fetchMetadata(original_url)).description,
       content_category: detectionResult.category,
       content_probability: detectionResult.confidence || 1.0,
       is_malicious: !detectionResult.isSafe,
