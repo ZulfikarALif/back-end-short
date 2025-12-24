@@ -1,9 +1,8 @@
 // src/services/ContentClassifierService.js
-// VERSI DIPERKUAT — Fail-Safe & Threshold Confidence
-
 import axios from "axios";
 
-const ML_API = "http://127.0.0.1:5000/classify"; // Flask Python kamu
+// PASTIKAN PORT INI SAMA DENGAN app.py KAMU! (default 5001)
+const ML_API = "http://127.0.0.1:5001/classify";
 
 export const classifyContent = async (
   title = "",
@@ -11,63 +10,85 @@ export const classifyContent = async (
   bodyText = "",
   url = ""
 ) => {
-  // Gabungkan semua teks yang tersedia
-  const text = [title, description, bodyText].filter(Boolean).join(" ").trim();
+  // Gabungkan semua teks yang ada
+  let combinedText = [title, description, bodyText]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
 
-  // Validasi awal: Kalau teks dan url kosong, anggap aman (atau bisa ditolak juga tergantung kebijakan)
-  if (!text && !url) {
+  // === TAMBAHAN: CLEAN TEKS LEBIH BAIK ===
+  combinedText = combinedText
+    .replace(/\s+/g, " ")   // Ganti multiple whitespace/newline/tab jadi spasi tunggal
+    .replace(/[^\w\s.,!?]/g, "") // Hapus karakter aneh (opsional, biar lebih bersih)
+    .trim();
+
+  // === TAMBAHAN: LIMIT PANJANG TEKS (maks 5000 karakter) ===
+  const MAX_TEXT_LENGTH = 5000;
+  if (combinedText.length > MAX_TEXT_LENGTH) {
+    combinedText = combinedText.substring(0, MAX_TEXT_LENGTH) + "... [truncated]";
+    console.log(`[ML] Teks terlalu panjang, dipotong menjadi ${MAX_TEXT_LENGTH} karakter`);
+  }
+
+  // Kalau benar-benar tidak ada konten & URL → anggap aman
+  if (!combinedText && !url) {
     return {
       isSafe: true,
-      category: "safe",
-      probability: 0,
+      category: "no_content",
       confidence: 1.0,
-      message: "Tidak ada konten untuk dianalisis",
       scores: {},
     };
   }
 
   try {
-    console.log("=== Sending to Flask API ===");
-    console.log("URL:", url);
-    console.log("Text (first 200 chars):", text.substring(0, 200));
+    console.log("[ML] Mengirim request ke Flask untuk klasifikasi...");
+    console.log("[ML] URL:", url);
+    console.log(`[ML] Panjang teks dikirim: ${combinedText.length} karakter`);
+    if (combinedText.length > 0) {
+      console.log("[ML] Text snippet:", combinedText.substring(0, 200) + (combinedText.length > 200 ? "..." : ""));
+    }
 
-    // 1. Coba panggil Flask API
     const response = await axios.post(
       ML_API,
-      { text, url },
-      { timeout: 10000 } // Timeout 10 detik (jangan terlalu lama menunggu)
+      {
+        text: combinedText,
+        url: url,
+      },
+      {
+        timeout: 15000, // 15 detik timeout (cukup untuk fetch + predict)
+      }
     );
 
     const r = response.data;
 
-    console.log("Flask API Response:", r);
+    console.log("[ML] Prediksi dari Flask:", r);
 
-    // 2. Jika sukses terhubung, kembalikan hasil prediksi Flask
+    // Mapping hasil Flask ke format yang diharapkan controller
     return {
-      isSafe: r.is_safe,
+      isSafe: r.is_safe === true, // pastikan boolean
       category: r.category || "unknown",
-      probability: 1 - r.confidence,
-      confidence: r.confidence,
-      message: `Naive Bayes: ${r.category.toUpperCase()} (${(
-        r.confidence * 100
-      ).toFixed(1)}% yakin)`,
+      confidence: r.confidence ?? 0,
       scores: r.all_probabilities || {},
     };
   } catch (error) {
-    // 3. JIKA FLASK ERROR / OFFLINE / TIMEOUT
-    console.error(
-      "⚠️ CRITICAL: ML Service (Python) Gagal Dihubungi:",
-      error.message
-    );
+    // === ERROR HANDLING: JANGAN PERNAH BLOKIR KALAU FLASK GAGAL ===
+    console.error("[ML] GAGAL menghubungi Flask ML Service:");
+    
+    if (error.code) {
+      console.error(`[ML] Error code: ${error.code}`); // ECONNREFUSED, ENOTFOUND, dll.
+    }
+    if (error.response) {
+      console.error(`[ML] Status: ${error.response.status} | Data:`, error.response.data);
+    } else {
+      console.error(`[ML] Message: ${error.message}`);
+    }
 
-    // PERUBAHAN PENTING: JIKA SISTEM ERROR, ANG GAPTEK BISA JAHAT
+    console.warn("[ML] Fallback: Menganggap link AMAN karena layanan ML tidak tersedia (fail-open).");
+
+    // Fail-open: Izinkan link supaya user tetap bisa create shortlink
     return {
-      isSafe: false, // <--- DIBLOKIR KARENA SISTEM DETEKSI MATI
-      category: "system_error",
-      probability: 1.0,
-      confidence: 0.0,
-      message:
-        "Layanan keamanan sedang offline. Link diblokir sementara demi keamanan.",
+      isSafe: true,
+      category: "ml_service_unavailable",
+      confidence: 0.5,
       scores: {},
     };
   }

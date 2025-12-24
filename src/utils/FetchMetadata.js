@@ -1,82 +1,117 @@
+// src/utils/FetchMetadata.js (VERSI UPGRADE)
 import axios from "axios";
+import { extract } from "@extractus/article-extractor";
 import * as cheerio from "cheerio";
-// import https from 'https';
 
 /**
- * Mengambil metadata (title, description, dan isi halaman/bodyText) dari URL.
- * bodyText digunakan untuk analisis konten keamanan (Judi, Dewasa, dll.)
- * @param {string} url - URL target
- * @returns {Promise<{ title: string, description: string, bodyText: string }>}
+ * Mengambil metadata lengkap: title, description, bodyText, dan IMAGE (og:image + fallback favicon)
  */
 export const fetchMetadata = async (url) => {
   try {
-    // Tambahkan timeout 5 detik agar scraping tidak menggantung terlalu lama
     const response = await axios.get(url, {
-      timeout: 5000,
+      timeout: 10000,
       headers: {
-        // Gunakan User-Agent agar tidak diblokir oleh beberapa server
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
 
     const html = response.data;
     const $ = cheerio.load(html);
 
-    // --- 1. Ambil Title ---
-    let title = $("title").text().trim();
-    if (!title) {
-      title = $('meta[property="og:title"]').attr("content") || "";
-    }
-
-    // --- 2. Ambil Description ---
-    let description = $('meta[name="description"]').attr("content") || "";
-    if (!description) {
-      description = $('meta[property="og:description"]').attr("content") || "";
-    }
-
-    // Fallback: Jika tidak ada meta description, ambil teks dari paragraf
-    if (!description) {
-      const paragraphs = $("p")
-        .map((i, el) => $(el).text().trim())
-        .get();
-      for (const p of paragraphs) {
-        if (p.length > 50) {
-          description = p.substring(0, 200) + (p.length > 200 ? "..." : ""); // Batasi 200 karakter
-          break;
-        }
+    // Ekstrak og:image dulu
+    let image = $('meta[property="og:image"]').attr("content") || $('meta[property="og:image:secure_url"]').attr("content") || null;
+    if (image) {
+      // Pastikan absolute URL
+      if (image.startsWith("//")) image = "https:" + image;
+      else if (image.startsWith("/")) {
+        const urlObj = new URL(url);
+        image = urlObj.origin + image;
       }
     }
 
-    // --- 3. Ambil Body Text (Konten utama untuk Analisis Keamanan) ---
+    // Prioritas 1: Article extractor
+    try {
+      const article = await extract(html);
 
-    // Hapus script, style, dan noscript tags agar bodyText lebih bersih dari kode
-    $("script, style, noscript").remove();
+      if (article && article.title) {
+        let bodyText = "";
+        if (article.content) {
+          const content$ = cheerio.load(article.content);
+          bodyText = content$.text().replace(/\s+/g, " ").trim();
+        }
 
-    let bodyText = $("body").text().trim();
+        if (bodyText.length > 3000) {
+          bodyText = bodyText.substring(0, 3000) + "... [truncated]";
+        }
 
-    // Bersihkan whitespace berlebih, newlines, dan tabs menjadi satu spasi
-    bodyText = bodyText.replace(/[\n\t\r]+/g, " ").replace(/\s\s+/g, " ");
+        // Fallback favicon kalau og:image gak ada
+        if (!image) {
+          const urlObj = new URL(url);
+          const domain = urlObj.hostname.replace(/^www\./, "");
+          image = `https://www.google.com/s2/favicons?domain=${domain}&sz=256`;
+        }
 
-    // Batasi agar tidak terlalu panjang untuk analisis model, cukup 1500 karakter awal
-    if (bodyText.length > 1500) {
-      bodyText =
-        bodyText.substring(0, 1500) + "... [text truncated for analysis]";
+        return {
+          title: article.title.trim() || "No Title Found",
+          description: (article.description || article.excerpt || "No Description Found").trim(),
+          bodyText: bodyText || "No Body Text Found",
+          image: image, // ← BARU: og:image atau favicon
+        };
+      }
+    } catch (extractError) {
+      console.warn("Article extractor gagal, fallback ke cheerio:", extractError.message);
+    }
+
+    // Fallback 2: Cheerio manual
+    let title = $("title").text().trim();
+    if (!title) title = $('meta[property="og:title"]').attr("content") || "No Title Found";
+
+    let description = $('meta[name="description"]').attr("content") || "";
+    if (!description) description = $('meta[property="og:description"]').attr("content") || "";
+    if (!description) {
+      const firstP = $("p").first().text().trim();
+      if (firstP.length > 50) description = firstP.substring(0, 200);
+    }
+
+    $("script, style, noscript, header, footer, nav, aside").remove();
+    let bodyText = $("body").text().replace(/\s+/g, " ").trim();
+    if (bodyText.length > 3000) {
+      bodyText = bodyText.substring(0, 3000) + "... [truncated]";
+    }
+
+    // Fallback favicon kalau og:image masih kosong
+    if (!image) {
+      const urlObj = new URL(url);
+      const domain = urlObj.hostname.replace(/^www\./, "");
+      image = `https://www.google.com/s2/favicons?domain=${domain}&sz=256`;
     }
 
     return {
       title: title || "No Title Found",
       description: description || "No Description Found",
       bodyText: bodyText || "No Body Text Found",
+      image: image, // ← Pasti ada gambar sekarang!
     };
   } catch (error) {
-    // Tangani error seperti koneksi gagal, DNS error, atau timeout
     console.warn(`Gagal mengambil metadata dari ${url}:`, error.message);
-    // Mengembalikan objek error agar controller bisa menangkapnya
-    return {
-      title: "Error Fetching - Check URL",
-      description: "Error Fetching - Check URL",
-      bodyText: "Error Fetching - Check URL",
-    };
+    // Bahkan saat error, kasih favicon dari domain
+    try {
+      const urlObj = new URL(url);
+      const domain = urlObj.hostname.replace(/^www\./, "");
+      return {
+        title: "Error Fetching - Check URL",
+        description: "Error Fetching - Check URL",
+        bodyText: "Error Fetching - Check URL",
+        image: `https://www.google.com/s2/favicons?domain=${domain}&sz=256`,
+      };
+    } catch {
+      return {
+        title: "Error Fetching - Check URL",
+        description: "Error Fetching - Check URL",
+        bodyText: "Error Fetching - Check URL",
+        image: null,
+      };
+    }
   }
 };
