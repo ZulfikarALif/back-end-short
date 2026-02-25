@@ -33,6 +33,15 @@ const WHITELIST_DOMAINS = [
   'grok.com',
   'bca.co.id', 'mandiri.co.id', 'bri.co.id', 'bni.co.id',
   'shopee.co.id', 'tokopedia.com', 'lazada.co.id',
+  'remove.bg',
+  'imgur.com',
+  'canva.com',
+  'figma.com',
+  'tinyurl.com',
+  'rebrand.ly',
+  'bit.ly',
+  'tiktok.com',
+  'drive.google.com',
 ];
 
 export const shortenUrl = async (req, res) => {

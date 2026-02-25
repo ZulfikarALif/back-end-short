@@ -23,7 +23,7 @@ try {
   console.log("Database connected");
 
   // --- TAMBAHKAN INI ---
-  await db.sync({ alter: true }); // Sinkronkan model dengan database
+await db.sync(); // Sinkronkan model dengan database
   console.log("Database synchronized");
   // ------------------------
 } catch (error) {
