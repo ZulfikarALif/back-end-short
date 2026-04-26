@@ -11,6 +11,8 @@ import userRouter from "./routers/UserRouter.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import Link from "./models/Link.js";
+import User from "./models/User.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,6 +22,8 @@ const port = process.env.PORT || 5000;
 
 try {
   await db.authenticate();
+  // await User.sync()
+  // await Link.sync()
   console.log("Database connected");
 
   // --- TAMBAHKAN INI ---
