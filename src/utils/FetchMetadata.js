@@ -40,6 +40,9 @@ export const fetchMetadata = async (url) => {
         timeout: 20000,
       });
 
+      await page.waitForSelector("body");
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
       const html = await page.content();
       console.log("✅ Berhasil ambil HTML via Puppeteer");
 

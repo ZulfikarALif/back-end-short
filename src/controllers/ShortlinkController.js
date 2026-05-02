@@ -81,7 +81,7 @@ export const shortenUrl = async (req, res) => {
     confidence: (detectionResult.confidence * 100).toFixed(1) + "%",
     message: "Terdeteksi konten berisiko tinggi"
   },
-  reason: detectionResult.reason   // 🔥 TAMBAH DI SINI
+  reason: detectionResult.reason   
 });
       }
     } catch (e) {
@@ -168,6 +168,7 @@ export const shortenUrl = async (req, res) => {
   user_id: userId,
   title: metadataForSave.title,
   scraped_description: metadataForSave.description,
+  body_text: metadataForSave.bodyText || null,
   content_category: detectionResult.category,
   content_probability: detectionResult.confidence || 0,
   is_malicious: false,
@@ -235,37 +236,31 @@ export const redirectToOriginal = async (req, res) => {
     let confidence = 1.0;
 
     try {
-      // --- PERBAIKAN: Pastikan URL tujuan memiliki protokol untuk pengecekan ---
-      let urlToCheck = link.default_link;
-      if (!/^https?:\/\//i.test(urlToCheck)) {
-        urlToCheck = 'https://' + urlToCheck;
-      }
-      const urlObj = new URL(urlToCheck);
-      const isWhitelisted = WHITELIST_DOMAINS.some(domain => urlObj.hostname.includes(domain));
+  let urlToCheck = link.default_link;
 
-      if (isWhitelisted) {
-        isSafe = true;
-        category = "whitelisted";
-      } else {
-        // Hanya ML (Naive Bayes) dengan keywords
-        const metadata = await fetchMetadata(urlToCheck);
-        const detectionResult = await classifyContent(
-          metadata.title || "",
-          link.description || metadata.description || "",
-          metadata.bodyText || "",
-          urlToCheck,                    // gunakan urlToCheck
-          metadata.keywords || ""        // tambahkan keywords
-        );
+  if (!/^https?:\/\//i.test(urlToCheck)) {
+    urlToCheck = 'https://' + urlToCheck;
+  }
 
-        isSafe = detectionResult.isSafe;
-        category = detectionResult.category || "unknown";
-        confidence = detectionResult.confidence || 0;
-      }
-    } catch (err) {
-      console.error("Error real-time check:", err.message);
-      isSafe = true; // fallback aman
-    }
+  // ✅ LANGSUNG ML
+  const metadata = await fetchMetadata(urlToCheck);
 
+  const detectionResult = await classifyContent(
+    metadata.title || "",
+    link.description || metadata.description || "",
+    metadata.bodyText || "",
+    urlToCheck,
+    metadata.keywords || ""
+  );
+
+  isSafe = detectionResult.isSafe;
+  category = detectionResult.category || "unknown";
+  confidence = detectionResult.confidence || 0;
+
+} catch (err) {
+  console.error("Error real-time check:", err.message);
+  isSafe = true;
+}
     if (isSafe) {
       link.clicks = (link.clicks || 0) + 1;
       await link.save();
@@ -337,6 +332,7 @@ export const getAllLinks = async (req, res) => {
       shortUrl: `http://localhost:5000/${link.short_link}`,
       originalUrl: link.default_link,
       title: link.title || link.description || "Untitled",
+      bodyText: link.body_text || "",
       category: link.content_category || "unknown",
       probability: link.content_probability ? (link.content_probability * 100).toFixed(1) + "%" : "-",
       createdAt: link.createdAt
@@ -448,7 +444,9 @@ export const getUrlPreview = async (req, res) => {
       description: metadata.description || "Tidak ada deskripsi",
       image: metadata.image || null,
       domain: hostname,
-    });
+      keywords: metadata.keywords || "",
+      body: metadata.bodyText || ""   
+   });
   } catch (error) {
     console.error("Error in getUrlPreview:", error);
     try {
@@ -459,6 +457,8 @@ export const getUrlPreview = async (req, res) => {
         description: "Tidak dapat mengambil preview halaman",
         image: null,
         domain,
+        keywords: "",
+        body: "" 
       });
     } catch {
       return res.status(500).json({ error: "Gagal mengambil preview URL" });
